@@ -209,6 +209,8 @@ print(test_set_bigram)
 
 # E04: we saw that our 1-hot vectors merely select a row of W, so producing these vectors explicitly feels wasteful. Can you delete our use of F.one_hot in favor of simply indexing into rows of W? 
 
+#check the trigram model 
+
 # def plot_trigram(N):
 
 #     plt.figure(figsize=(6, 40))
@@ -235,5 +237,6 @@ print(test_set_bigram)
 #
 #
 # E05: look up and use F.cross_entropy instead. You should achieve the same result. Can you think of why we'd prefer to use F.cross_entropy instead? 
-#
+# also check the trigram model 
 # E06: meta-exercise! Think of a fun/interesting exercise and complete it.
+# I have no clue what to build 
