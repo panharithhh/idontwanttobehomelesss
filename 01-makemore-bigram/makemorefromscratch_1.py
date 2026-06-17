@@ -135,6 +135,8 @@ def trigram(words: list, smoothing_num:int):
             probs = torch.log(probs)
             loss += probs  
     loss = -loss/counts
+
+    # F cross_entropy_entrophy should be hgere  
     # print(f"Trigram {-loss/counts} vs Bigram : {bigram_loss}")
     return loss 
 
