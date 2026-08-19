@@ -1,0 +1,558 @@
+<title>Embedding Lookup, Block by Block</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --surface: #ffffff;
+    --surface-2: #ebedf1;
+    --ink: #1b1f27;
+    --ink-muted: #5b6472;
+    --rule: #dadde3;
+    --token-accent: #c97a2e;
+    --pos-accent: #2f8f86;
+    --logit-accent: #a8447a;
+    --focus: #2f6fed;
+
+    --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171d;
+      --surface: #1b1f27;
+      --surface-2: #232833;
+      --ink: #eceef2;
+      --ink-muted: #9098a8;
+      --rule: #333a47;
+      --token-accent: #e3a25c;
+      --pos-accent: #4fbbb0;
+      --logit-accent: #d9679f;
+      --focus: #6fa0ff;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #14171d;
+    --surface: #1b1f27;
+    --surface-2: #232833;
+    --ink: #eceef2;
+    --ink-muted: #9098a8;
+    --rule: #333a47;
+    --token-accent: #e3a25c;
+    --pos-accent: #4fbbb0;
+    --logit-accent: #d9679f;
+    --focus: #6fa0ff;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    line-height: 1.6;
+    margin: 0;
+    padding: 3.5rem 1.5rem 6rem;
+  }
+
+  a { color: inherit; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  main {
+    max-width: 760px;
+    margin: 0 auto;
+  }
+
+  header.page {
+    margin-bottom: 3rem;
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 2.15rem;
+    line-height: 1.2;
+    margin: 0 0 0.6rem;
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+
+  .subtitle {
+    font-size: 1.05rem;
+    color: var(--ink-muted);
+    max-width: 60ch;
+    margin: 0 0 1.4rem;
+  }
+
+  .stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-bottom: 1.6rem;
+  }
+
+  .stat {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 0.82rem;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 0.3rem 0.6rem;
+    color: var(--ink-muted);
+    background: var(--surface);
+  }
+  .stat b { color: var(--ink); font-weight: 600; }
+
+  .disclaimer {
+    font-size: 0.88rem;
+    color: var(--ink-muted);
+    border-left: 2px solid var(--rule);
+    padding-left: 0.9rem;
+    max-width: 58ch;
+  }
+
+  section {
+    margin: 3.2rem 0;
+  }
+
+  section > h2 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 1.3rem;
+    margin: 0 0 0.35rem;
+    text-wrap: balance;
+  }
+
+  .kicker {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--ink-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0 0 0.4rem;
+  }
+
+  section > p {
+    color: var(--ink-muted);
+    max-width: 62ch;
+    margin: 0.5rem 0 1.3rem;
+  }
+
+  .legend {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    margin: 1.2rem 0;
+  }
+  .legend-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    font-size: 0.95rem;
+  }
+  .swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    flex: none;
+    position: relative;
+    top: 1px;
+  }
+  .swatch.token { background: var(--token-accent); }
+  .swatch.pos { background: var(--pos-accent); }
+  .legend-row code { font-family: var(--font-mono); font-size: 0.85rem; }
+  .legend-row .desc { color: var(--ink-muted); }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 1.3rem 1.4rem;
+  }
+
+  .overview-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: 0.9rem; }
+  canvas { display: block; image-rendering: pixelated; }
+
+  .caption {
+    font-size: 0.85rem;
+    color: var(--ink-muted);
+    max-width: 56ch;
+  }
+  .caption b { color: var(--ink); font-weight: 600; }
+
+  .row-list { display: flex; flex-direction: column; gap: 0.55rem; margin-top: 1rem; }
+  .row-item {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+  }
+  .row-label {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--ink-muted);
+    width: 92px;
+    flex: none;
+  }
+  .row-label b { color: var(--ink); font-size: 0.95rem; font-family: var(--font-mono); }
+
+  .merge-scroll { overflow-x: auto; padding-bottom: 0.4rem; }
+  .merge-table { display: flex; flex-direction: column; gap: 0.65rem; min-width: 620px; }
+  .merge-row { display: flex; align-items: center; gap: 0.7rem; }
+  .merge-op { font-family: var(--font-mono); color: var(--ink-muted); font-size: 1rem; width: 14px; text-align: center; flex: none; }
+  .merge-head { display: flex; align-items: center; gap: 0.7rem; padding-bottom: 0.3rem; border-bottom: 1px solid var(--rule); margin-bottom: 0.2rem; }
+  .merge-head .row-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .merge-head .th { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-muted); width: 224px; }
+
+  .note {
+    margin-top: 1rem;
+    font-size: 0.85rem;
+    color: var(--ink-muted);
+    border-top: 1px dashed var(--rule);
+    padding-top: 0.8rem;
+  }
+
+  .lmhead-flow {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.1rem;
+  }
+  .flow-arrow { font-family: var(--font-mono); color: var(--ink-muted); }
+  .flow-label { font-family: var(--font-mono); font-size: 0.78rem; color: var(--ink-muted); }
+
+  .bars-wrap { position: relative; margin-top: 0.6rem; }
+  .ticks { position: relative; height: 16px; }
+  .tick {
+    position: absolute;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--ink-muted);
+    transform: translateX(-50%);
+    top: 2px;
+  }
+
+  footer.page {
+    margin-top: 3.5rem;
+    padding-top: 1.6rem;
+    border-top: 1px solid var(--rule);
+    font-size: 0.95rem;
+    color: var(--ink-muted);
+    max-width: 58ch;
+  }
+  footer.page code { font-family: var(--font-mono); color: var(--ink); }
+</style>
+
+<main>
+  <header class="page">
+    <h1>Embedding Lookup, Block by Block</h1>
+    <p class="subtitle"><code>token_embedding_table</code>, <code>position_embedding_table</code>, and <code>lm_head</code>, traced through the actual first block your model trains on — <b>"First Ci"</b>, the first 8 characters of <code>input.txt</code>.</p>
+    <div class="stats">
+      <span class="stat">vocab_size <b>65</b></span>
+      <span class="stat">block_size <b>8</b></span>
+      <span class="stat">n_embd <b>32</b></span>
+    </div>
+    <p class="disclaimer">Every block below stands for one number. The shading is generated so the shapes and lookups are visible — it is not real trained weights: <code>nn.Embedding</code> starts as random noise and only takes shape after training.</p>
+  </header>
+
+  <section id="framing">
+    <p class="kicker">Two tables, two questions</p>
+    <h2>Independent lookups, until you combine them</h2>
+    <div class="legend">
+      <div class="legend-row"><span class="swatch token"></span><code>token_embedding_table</code> — indexed by <b>which character</b> (id 0–64). Answers "what is this?" <span class="desc"></span></div>
+      <div class="legend-row"><span class="swatch pos"></span><code>position_embedding_table</code> — indexed by <b>which slot</b> (0–7). Answers "where is this?"</div>
+    </div>
+    <p>Nothing links these two tables together. They're queried separately, and stay separate, until <code>forward()</code> explicitly adds their outputs — a line your current code hasn't written yet.</p>
+  </section>
+
+  <section id="token-table">
+    <p class="kicker">65 rows × 32 columns</p>
+    <h2>token_embedding_table</h2>
+    <div class="panel overview-wrap">
+      <canvas id="tokenOverview" aria-hidden="true"></canvas>
+      <p class="caption">One row per character in the vocabulary, sorted low → high id. The outlined rows are the ones <b>"First Ci"</b> actually touches — everything else exists but sits unused this block.</p>
+    </div>
+    <div class="row-list" id="tokenRows" aria-hidden="true"></div>
+    <p class="caption" style="margin-top:0.9rem;"><code>'i'</code> appears twice in this block — position 1 and position 7 — and both reads pull the exact same row, id 47. Same character, same vector, no matter where it sits.</p>
+  </section>
+
+  <section id="pos-table">
+    <p class="kicker">8 rows × 32 columns</p>
+    <h2>position_embedding_table</h2>
+    <p>Small enough to show in full — every row this table will ever have for this model.</p>
+    <div class="panel">
+      <div class="row-list" id="posRows" aria-hidden="true"></div>
+    </div>
+    <p class="caption" style="margin-top:0.9rem;">Row 2 means "I'm the 3rd token in the block," full stop — whether that slot holds an <code>'r'</code>, a <code>'!'</code>, or a newline.</p>
+  </section>
+
+  <section id="merge">
+    <p class="kicker">The merge — one slot at a time</p>
+    <h2>tok_emb[i] + pos_emb[i]</h2>
+    <p>For every slot in <b>"First Ci"</b>: one row pulled by character id, one row pulled by position, added elementwise into a single fused vector.</p>
+    <div class="panel">
+      <div class="merge-scroll">
+        <div class="merge-table">
+          <div class="merge-head">
+            <span class="row-label">slot</span>
+            <span class="th">token row</span>
+            <span class="merge-op"></span>
+            <span class="th">position row</span>
+            <span class="merge-op"></span>
+            <span class="th">combined</span>
+          </div>
+          <div id="mergeRows"></div>
+        </div>
+      </div>
+    </div>
+    <p class="note">Right now <code>forward()</code> only computes the first column above (<code>tok_emb</code>) and feeds it straight to <code>lm_head</code> — the position row and the <code>+</code> aren't wired in yet.</p>
+  </section>
+
+  <section id="lmhead">
+    <p class="kicker">32 → 65</p>
+    <h2>lm_head</h2>
+    <p>One shared <code>Linear(32, 65)</code>, applied identically at every slot. Here it's run on slot 0's combined vector — <b>"F"</b> at position 0.</p>
+    <div class="panel">
+      <div class="lmhead-flow">
+        <canvas id="lmInput" aria-hidden="true"></canvas>
+        <span class="flow-arrow">— lm_head →</span>
+        <span class="flow-label">65 logits</span>
+      </div>
+      <div class="bars-wrap">
+        <canvas id="lmBars" aria-hidden="true"></canvas>
+        <div class="ticks" id="lmTicks"></div>
+      </div>
+      <p class="caption" style="margin-top:0.6rem;">One raw score per character in the vocabulary — higher means "more likely to come next." On an untrained model these are close to noise, which is exactly why the loss starts high and training exists at all.</p>
+    </div>
+  </section>
+
+  <footer class="page">
+    table lookup → table lookup → <code>+</code> → <code>lm_head</code>. That's the whole path from a character on disk to a next-character guess — and the line you're about to add to <code>forward()</code>.
+  </footer>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  var PALETTE = {
+    light: { surface2: [235,237,241], ink: [27,31,39], token: [201,122,46], pos: [47,143,134], logit: [168,68,122] },
+    dark:  { surface2: [35,40,51],   ink: [236,238,242], token: [227,162,92], pos: [79,187,176], logit: [217,103,159] }
+  };
+
+  function isDark() {
+    var attr = document.documentElement.getAttribute("data-theme");
+    if (attr === "dark") return true;
+    if (attr === "light") return false;
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  function theme() { return isDark() ? PALETTE.dark : PALETTE.light; }
+
+  function rand(seed) {
+    var x = Math.sin(seed * 12.9898) * 43758.5453;
+    return x - Math.floor(x);
+  }
+  function tokenVal(charId, col) { return rand(charId * 131.7 + col * 977.13) * 2 - 1; }
+  function posVal(pos, col) { return rand(5000 + pos * 257.3 + col * 631.7) * 2 - 1; }
+  function logitVal(col) { return rand(9000 + col * 311.37) * 2 - 1; }
+
+  function mix(rgb, accent, t) {
+    t = Math.max(0, Math.min(1, t));
+    var r = Math.round(rgb[0] + (accent[0] - rgb[0]) * t);
+    var g = Math.round(rgb[1] + (accent[1] - rgb[1]) * t);
+    var b = Math.round(rgb[2] + (accent[2] - rgb[2]) * t);
+    return "rgb(" + r + "," + g + "," + b + ")";
+  }
+  function cellColor(value, maxAbs, accentKey, th) {
+    var t = Math.abs(value) / maxAbs;
+    var accent = accentKey === "combined" ? th.ink : th[accentKey];
+    return mix(th.surface2, accent, t);
+  }
+
+  function drawStrip(canvas, values, accentKey, maxAbs) {
+    maxAbs = maxAbs || 1;
+    var th = theme();
+    var cellW = 7, cellH = 22, dpr = window.devicePixelRatio || 1;
+    var n = values.length;
+    canvas.width = n * cellW * dpr;
+    canvas.height = cellH * dpr;
+    canvas.style.width = n * cellW + "px";
+    canvas.style.height = cellH + "px";
+    var ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    for (var i = 0; i < n; i++) {
+      ctx.fillStyle = cellColor(values[i], maxAbs, accentKey, th);
+      ctx.fillRect(i * cellW, 0, cellW - 1, cellH);
+    }
+  }
+
+  function drawHeatmap(canvas, rows, cols, valueFn, accentKey, highlightRows) {
+    var th = theme();
+    var cellW = 6, cellH = 2.4, dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(cols * cellW * dpr);
+    canvas.height = Math.round(rows * cellH * dpr);
+    canvas.style.width = cols * cellW + "px";
+    canvas.style.height = rows * cellH + "px";
+    var ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    for (var r = 0; r < rows; r++) {
+      for (var c = 0; c < cols; c++) {
+        ctx.fillStyle = cellColor(valueFn(r, c), 1, accentKey, th);
+        ctx.fillRect(c * cellW, r * cellH, cellW, cellH);
+      }
+    }
+    if (highlightRows) {
+      ctx.strokeStyle = "rgb(" + th.ink.join(",") + ")";
+      ctx.lineWidth = 1;
+      highlightRows.forEach(function (r) {
+        ctx.strokeRect(0.5, r * cellH + 0.5, cols * cellW - 1, cellH - 1);
+      });
+    }
+  }
+
+  function drawBars(canvas, values, accentKey) {
+    var th = theme();
+    var accent = th[accentKey];
+    var w = 3, gap = 1, h = 92, dpr = window.devicePixelRatio || 1;
+    var n = values.length;
+    var totalW = n * (w + gap);
+    canvas.width = Math.round(totalW * dpr);
+    canvas.height = Math.round(h * dpr);
+    canvas.style.width = totalW + "px";
+    canvas.style.height = h + "px";
+    var ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var maxAbs = Math.max.apply(null, values.map(Math.abs));
+    var mid = h / 2;
+    ctx.strokeStyle = "rgb(" + th.surface2.join(",") + ")";
+    ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(totalW, mid); ctx.stroke();
+    for (var i = 0; i < n; i++) {
+      var v = values[i];
+      var barH = (Math.abs(v) / maxAbs) * (mid - 4);
+      var y = v >= 0 ? mid - barH : mid;
+      ctx.fillStyle = mix(th.surface2, accent, 0.4 + 0.6 * (Math.abs(v) / maxAbs));
+      ctx.fillRect(i * (w + gap), y, w, Math.max(barH, 1));
+    }
+    return { barW: w, gap: gap };
+  }
+
+  var VOCAB = ["\n"," ","!","$","&","'",",","-",".","3",":",";","?","A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z","a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","x","y","z"];
+  var STOI = {}; VOCAB.forEach(function (ch, i) { STOI[ch] = i; });
+
+  var BLOCK = ["F", "i", "r", "s", "t", " ", "C", "i"];
+  var BLOCK_IDS = BLOCK.map(function (ch) { return STOI[ch]; });
+  var UNIQUE = []; var seen = {};
+  BLOCK.forEach(function (ch) { if (!seen[ch]) { seen[ch] = true; UNIQUE.push(ch); } });
+
+  function charLabel(ch) { return ch === " " ? "␣" : (ch === "\n" ? "\\n" : ch); }
+
+  function renderAll() {
+    // token table overview
+    drawHeatmap(
+      document.getElementById("tokenOverview"),
+      65, 32,
+      function (r, c) { return tokenVal(r, c); },
+      "token",
+      UNIQUE.map(function (ch) { return STOI[ch]; })
+    );
+
+    // token detail rows
+    var tokenRowsEl = document.getElementById("tokenRows");
+    tokenRowsEl.innerHTML = "";
+    UNIQUE.forEach(function (ch) {
+      var id = STOI[ch];
+      var wrap = document.createElement("div");
+      wrap.className = "row-item";
+      var label = document.createElement("div");
+      label.className = "row-label";
+      label.innerHTML = "<b>" + charLabel(ch) + "</b>&nbsp;&nbsp;id " + id;
+      var canvas = document.createElement("canvas");
+      wrap.appendChild(label);
+      wrap.appendChild(canvas);
+      tokenRowsEl.appendChild(wrap);
+      var vals = []; for (var c = 0; c < 32; c++) vals.push(tokenVal(id, c));
+      drawStrip(canvas, vals, "token");
+    });
+
+    // position table rows
+    var posRowsEl = document.getElementById("posRows");
+    posRowsEl.innerHTML = "";
+    for (var p = 0; p < 8; p++) {
+      (function (p) {
+        var wrap = document.createElement("div");
+        wrap.className = "row-item";
+        var label = document.createElement("div");
+        label.className = "row-label";
+        label.innerHTML = "<b>slot " + p + "</b>";
+        var canvas = document.createElement("canvas");
+        wrap.appendChild(label);
+        wrap.appendChild(canvas);
+        posRowsEl.appendChild(wrap);
+        var vals = []; for (var c = 0; c < 32; c++) vals.push(posVal(p, c));
+        drawStrip(canvas, vals, "pos");
+      })(p);
+    }
+
+    // merge table
+    var mergeEl = document.getElementById("mergeRows");
+    mergeEl.innerHTML = "";
+    for (var s = 0; s < 8; s++) {
+      (function (s) {
+        var ch = BLOCK[s], id = BLOCK_IDS[s];
+        var row = document.createElement("div");
+        row.className = "merge-row";
+        var label = document.createElement("div");
+        label.className = "row-label";
+        label.innerHTML = "<b>" + s + "</b>&nbsp; " + charLabel(ch) + " · id " + id;
+        var tokCanvas = document.createElement("canvas");
+        var opPlus = document.createElement("span"); opPlus.className = "merge-op"; opPlus.textContent = "+";
+        var posCanvas = document.createElement("canvas");
+        var opEq = document.createElement("span"); opEq.className = "merge-op"; opEq.textContent = "=";
+        var combCanvas = document.createElement("canvas");
+        row.appendChild(label);
+        row.appendChild(tokCanvas);
+        row.appendChild(opPlus);
+        row.appendChild(posCanvas);
+        row.appendChild(opEq);
+        row.appendChild(combCanvas);
+        mergeEl.appendChild(row);
+
+        var tokVals = [], posVals = [], combVals = [];
+        for (var c = 0; c < 32; c++) {
+          var tv = tokenVal(id, c), pv = posVal(s, c);
+          tokVals.push(tv); posVals.push(pv); combVals.push(tv + pv);
+        }
+        drawStrip(tokCanvas, tokVals, "token");
+        drawStrip(posCanvas, posVals, "pos");
+        drawStrip(combCanvas, combVals, "combined", 2);
+      })(s);
+    }
+
+    // lm_head
+    var lmInputVals = [];
+    for (var c2 = 0; c2 < 32; c2++) { lmInputVals.push(tokenVal(BLOCK_IDS[0], c2) + posVal(0, c2)); }
+    drawStrip(document.getElementById("lmInput"), lmInputVals, "combined", 2);
+
+    var logits = []; for (var c3 = 0; c3 < 65; c3++) logits.push(logitVal(c3));
+    var geom = drawBars(document.getElementById("lmBars"), logits, "logit");
+
+    var ticksEl = document.getElementById("lmTicks");
+    ticksEl.innerHTML = "";
+    var tickIds = UNIQUE.map(function (ch) { return STOI[ch]; }).sort(function (a, b) { return a - b; });
+    tickIds.forEach(function (id) {
+      var span = document.createElement("span");
+      span.className = "tick";
+      span.style.left = (id * (geom.barW + geom.gap) + geom.barW / 2) + "px";
+      span.textContent = charLabel(VOCAB[id]);
+      ticksEl.appendChild(span);
+    });
+  }
+
+  renderAll();
+  if (window.matchMedia) {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
+  }
+  new MutationObserver(renderAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+})();
+</script>

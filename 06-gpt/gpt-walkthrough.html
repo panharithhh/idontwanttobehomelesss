@@ -1,0 +1,737 @@
+<title>Bigram to GPT, Stage by Stage</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --surface: #ffffff;
+    --surface-2: #ebedf1;
+    --ink: #1b1f27;
+    --ink-muted: #5b6472;
+    --rule: #dadde3;
+    --token-accent: #c97a2e;
+    --pos-accent: #2f8f86;
+    --logit-accent: #a8447a;
+    --attn-accent: #3b5ba5;
+    --ffwd-accent: #4b7a3e;
+    --focus: #2f6fed;
+
+    --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171d; --surface: #1b1f27; --surface-2: #232833;
+      --ink: #eceef2; --ink-muted: #9098a8; --rule: #333a47;
+      --token-accent: #e3a25c; --pos-accent: #4fbbb0; --logit-accent: #d9679f;
+      --attn-accent: #7c9ee8; --ffwd-accent: #7fbb68; --focus: #6fa0ff;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171d; --surface: #1b1f27; --surface-2: #232833;
+    --ink: #eceef2; --ink-muted: #9098a8; --rule: #333a47;
+    --token-accent: #e3a25c; --pos-accent: #4fbbb0; --logit-accent: #d9679f;
+    --attn-accent: #7c9ee8; --ffwd-accent: #7fbb68; --focus: #6fa0ff;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    line-height: 1.62;
+    margin: 0;
+  }
+
+  a { color: inherit; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  nav.stagebar {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--surface);
+    border-bottom: 1px solid var(--rule);
+    overflow-x: auto;
+    white-space: nowrap;
+    padding: 0.55rem 1rem;
+  }
+  nav.stagebar a {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    color: var(--ink-muted);
+    text-decoration: none;
+    padding: 0.3rem 0.6rem;
+    border-radius: 4px;
+    margin-right: 0.15rem;
+  }
+  nav.stagebar a:hover { background: var(--surface-2); color: var(--ink); }
+  nav.stagebar a b { color: var(--ink); font-weight: 600; }
+
+  main { max-width: 780px; margin: 0 auto; padding: 3rem 1.5rem 6rem; }
+
+  header.page { margin-bottom: 3rem; }
+  h1 {
+    font-family: var(--font-display); font-weight: 500; font-size: 2.05rem;
+    line-height: 1.2; margin: 0 0 0.6rem; text-wrap: balance; letter-spacing: -0.01em;
+  }
+  .subtitle { font-size: 1.05rem; color: var(--ink-muted); max-width: 62ch; margin: 0 0 1.3rem; }
+  .stats { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 1.4rem; }
+  .stat {
+    font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.8rem;
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0.3rem 0.6rem;
+    color: var(--ink-muted); background: var(--surface);
+  }
+  .stat b { color: var(--ink); font-weight: 600; }
+  .disclaimer {
+    font-size: 0.86rem; color: var(--ink-muted); border-left: 2px solid var(--rule);
+    padding-left: 0.9rem; max-width: 58ch;
+  }
+  .seealso { font-size: 0.85rem; color: var(--ink-muted); margin-top: 1rem; }
+  .seealso a { text-decoration: underline; text-underline-offset: 2px; }
+
+  section { margin: 3.4rem 0; scroll-margin-top: 3.2rem; }
+  section > .kicker {
+    font-family: var(--font-mono); font-size: 0.76rem; color: var(--ink-muted);
+    text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 0.4rem;
+  }
+  section > h2 {
+    font-family: var(--font-display); font-weight: 500; font-size: 1.4rem;
+    margin: 0 0 0.4rem; text-wrap: balance;
+  }
+  section > p { color: var(--ink-muted); max-width: 64ch; margin: 0.6rem 0 1rem; }
+  section > p b, section > p code { color: var(--ink); }
+  code { font-family: var(--font-mono); font-size: 0.92em; }
+
+  .panel {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: 6px;
+    padding: 1.25rem 1.35rem; margin: 1rem 0;
+  }
+
+  .caption { font-size: 0.85rem; color: var(--ink-muted); max-width: 58ch; margin-top: 0.7rem; }
+  .caption b { color: var(--ink); font-weight: 600; }
+
+  .code-block {
+    background: var(--surface-2); border: 1px solid var(--rule); border-radius: 6px;
+    padding: 0.9rem 1rem; overflow-x: auto; font-family: var(--font-mono);
+    font-size: 0.8rem; line-height: 1.6; white-space: pre; margin: 1rem 0;
+  }
+  .code-block .cm { color: var(--ink-muted); }
+
+  .row-list { display: flex; flex-direction: column; gap: 0.5rem; }
+  .row-item { display: flex; align-items: center; gap: 0.8rem; }
+  .row-label { font-family: var(--font-mono); font-size: 0.8rem; color: var(--ink-muted); width: 100px; flex: none; }
+  .row-label b { color: var(--ink); font-family: var(--font-mono); }
+  canvas { display: block; image-rendering: pixelated; }
+
+  .hscroll { overflow-x: auto; padding-bottom: 0.3rem; }
+
+  /* numeric grid (trick / affinity) */
+  .ngrid-wrap { display: flex; gap: 1.4rem; align-items: flex-start; flex-wrap: wrap; }
+  .ngrid { display: grid; gap: 3px; }
+  .ngrid .gcell {
+    width: 46px; height: 34px; display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-size: 0.72rem; border-radius: 3px;
+    font-variant-numeric: tabular-nums;
+  }
+  .ngrid .ghead {
+    width: 46px; height: 22px; display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-size: 0.72rem; color: var(--ink-muted);
+  }
+  .ngrid .rlabel {
+    width: 46px; height: 34px; display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-size: 0.72rem; color: var(--ink-muted);
+  }
+  .blocked { background: var(--surface-2); color: var(--ink-muted); }
+
+  /* svg diagrams */
+  figure.diagram { margin: 1.1rem 0 0.4rem; }
+  .diagram-svg { width: 100%; height: auto; color: var(--ink); display: block; }
+  .diagram-svg text { font-family: var(--font-mono); }
+  .diagram-svg .edge-label { fill: var(--ink-muted); font-size: 10.3px; }
+  figcaption { font-size: 0.85rem; color: var(--ink-muted); max-width: 58ch; margin-top: 0.5rem; }
+  figcaption b { color: var(--ink); font-weight: 600; }
+
+  .legend-row { display: flex; align-items: baseline; gap: 0.6rem; font-size: 0.93rem; margin: 0.4rem 0; }
+  .swatch { width: 12px; height: 12px; border-radius: 2px; flex: none; position: relative; top: 1px; }
+
+  .note {
+    margin-top: 1rem; font-size: 0.85rem; color: var(--ink-muted);
+    border-top: 1px dashed var(--rule); padding-top: 0.8rem;
+  }
+
+  footer.page {
+    margin-top: 3.5rem; padding-top: 1.6rem; border-top: 1px solid var(--rule);
+    font-size: 0.95rem; color: var(--ink-muted); max-width: 58ch;
+  }
+  footer.page code { color: var(--ink); }
+</style>
+
+<nav class="stagebar" aria-label="Stages">
+  <a href="#roadmap"><b>0</b> Roadmap</a>
+  <a href="#data">1 Data→ints</a>
+  <a href="#bigram">2 Pure bigram</a>
+  <a href="#nembd">3 n_embd</a>
+  <a href="#posemb">4 Position</a>
+  <a href="#ceiling">5 The ceiling</a>
+  <a href="#trick">6 The trick</a>
+  <a href="#attention">7 Self-attention</a>
+  <a href="#multihead">8 Multi-head</a>
+  <a href="#feedforward">9 Feedforward</a>
+  <a href="#block">10 The Block</a>
+  <a href="#fullmodel">11 Full model</a>
+  <a href="#generate">12 generate()</a>
+  <a href="#beyond">13 Beyond toy GPT</a>
+</nav>
+
+<main>
+  <header class="page" id="roadmap">
+    <h1>Bigram to GPT, Stage by Stage</h1>
+    <p class="subtitle">Every step of Karpathy's <b>"Let's build GPT"</b>, from a single embedding table to a full transformer — grounded in the actual reference code from his <code>ng-video-lecture</code> repo, walked through with your model's real vocabulary.</p>
+    <div class="stats">
+      <span class="stat">vocab_size <b>65</b></span>
+      <span class="stat">block_size <b>8</b></span>
+      <span class="stat">n_embd <b>32</b></span>
+      <span class="stat">data <b>input.txt (tinyshakespeare)</b></span>
+    </div>
+    <p class="disclaimer">Weight numbers shown as colored blocks are generated to make shapes and lookups visible, not real trained values — every table below starts as random noise. Where the <i>math itself</i> is exact (no learned parameters involved), that's called out explicitly.</p>
+    <p class="seealso">Companion piece: <a href="embedding-lookup.html">Embedding Lookup, Block by Block</a> — a deep dive on stage 4 alone.</p>
+  </header>
+
+  <section id="data">
+    <p class="kicker">Stage 1 · before any model exists</p>
+    <h2>Text → integers</h2>
+    <p>Everything starts by treating the training text as a flat stream of characters, not words. <code>chars = sorted(set(text))</code> finds every unique character that appears anywhere in <code>input.txt</code> — 65 of them, for tinyshakespeare — and assigns each one an integer id (<code>stoi</code>) and the reverse mapping back (<code>itos</code>). <code>get_batch()</code> then slices out <code>batch_size</code> random windows of length <code>block_size</code>, where <code>y</code> is just <code>x</code> shifted one character to the right — the target at every position is simply "the next character."</p>
+    <div class="code-block">chars = sorted(list(set(text)))
+stoi = { ch:i for i,ch in enumerate(chars) }
+itos = { i:ch for i,ch in enumerate(chars) }
+
+<span class="cm"># x: (B, T) block of characters, y: x shifted one to the right</span>
+ix = torch.randint(len(data) - block_size, (batch_size,))
+x = torch.stack([data[i:i+block_size] for i in ix])
+y = torch.stack([data[i+1:i+block_size+1] for i in ix])</div>
+    <p class="caption">Nothing here is learned — it's bookkeeping. Every model below receives <code>(x, y)</code> pairs shaped exactly like this.</p>
+  </section>
+
+  <section id="bigram">
+    <p class="kicker">Stage 2 · the absolute starting point</p>
+    <h2>Pure bigram: one embedding table, nothing else</h2>
+    <p>Karpathy's very first working model skips <code>n_embd</code> and <code>lm_head</code> entirely: <code>nn.Embedding(vocab_size, vocab_size)</code>. Look an id up, and the row you get back <i>is</i> the logits — 65 numbers straight out of the table, no projection step at all.</p>
+    <div class="code-block">self.token_embedding_table = nn.Embedding(vocab_size, vocab_size)
+
+def forward(self, idx, targets=None):
+    logits = self.token_embedding_table(idx) <span class="cm"># (B,T,C) — already the logits</span></div>
+    <div id="dg-stage01" class="hscroll"></div>
+    <p class="caption">This is the whole model. Its ceiling is exactly what "bigram" implies: predicting character <i>N+1</i> from character <i>N</i> alone, nothing earlier.</p>
+  </section>
+
+  <section id="nembd">
+    <p class="kicker">Stage 3 · your current idk.py</p>
+    <h2>Decoupling width: n_embd + lm_head</h2>
+    <p>The next move doesn't change what the model can see — still just the current character — it changes <i>how much room</i> the model has to represent it. Instead of jumping straight from character id to 65 logits, insert a hidden width, <code>n_embd</code>, in between. <code>token_embedding_table</code> now outputs a 32-number vector; <code>lm_head</code>, a separate <code>Linear(32, 65)</code>, does the projection to logits.</p>
+    <p>This refactor is exactly where your own <code>forward()</code> sits right now, and it's what unlocks everything that follows — a hidden vector is something you can <i>add other information into</i> before projecting to logits. That's the seam position embeddings slot into next.</p>
+    <p class="caption" id="dg-stage01-caption"></p>
+  </section>
+
+  <section id="posemb">
+    <p class="kicker">Stage 4 · covered in depth in the companion piece</p>
+    <h2>Position embeddings: adding "where" to "what"</h2>
+    <p><code>position_embedding_table = nn.Embedding(block_size, n_embd)</code> — one row per slot (8 of them), independent of which character occupies that slot. <code>x = tok_emb + pos_emb</code> fuses "what character" with "where in the block" into a single vector before <code>lm_head</code> ever sees it.</p>
+    <div class="panel">
+      <div class="row-list" id="posembRows"></div>
+    </div>
+    <p class="caption">Full breakdown — the 65-row table, the reused rows, the elementwise add worked out slot by slot — lives in <a href="embedding-lookup.html"><b>Embedding Lookup, Block by Block</b></a>.</p>
+  </section>
+
+  <section id="ceiling">
+    <p class="kicker">Stage 5 · the motivating problem</p>
+    <h2>The ceiling: tokens still can't talk to each other</h2>
+    <p>Here's the trap: even with position embeddings wired in, <code>lm_head</code> is applied to <i>each slot's vector independently</i>. The vector at slot 4 knows "I am <code>'t'</code>, and I am the 5th slot" — but nothing about what sat at slots 0 through 3. Stack a hundred more linear layers on top and that stays true: no layer built purely from per-token math ever lets one token look at another.</p>
+    <p>To predict well, the model needs slot 4 to be able to pull information <i>from</i> slots 0–3 — selectively, based on what's actually relevant, not just "average everything blindly." That selective pulling is what attention is.</p>
+  </section>
+
+  <section id="trick">
+    <p class="kicker">Stage 6 · the bridge to attention</p>
+    <h2>The mathematical trick: averaging the past</h2>
+    <p>Before real attention, Karpathy builds the simplest possible version of "gather information from earlier slots": a running average. Slot <i>i</i>'s new vector becomes the mean of slots <code>0..i</code> — cheap, and, crucially, it only looks backward (slot 4 never sees slot 5, since slot 5 doesn't exist yet when slot 4 is being predicted from).</p>
+    <p>The naive way is a double for-loop. The fast way is one matrix multiply: build a lower-triangular matrix of ones, normalize each row to sum to 1, and multiply it against <code>x</code>.</p>
+    <div class="code-block">wei = torch.tril(torch.ones(T, T))
+wei = wei / wei.sum(1, keepdim=True)
+xbow = wei @ x   <span class="cm"># (T,T) @ (B,T,C) -> (B,T,C), each row now a running mean</span></div>
+    <p class="caption" style="margin-top:0.2rem;">This grid <b>is exact</b> — no learned parameters, just arithmetic. For 5 tokens, row <i>i</i> is <code>1/(i+1)</code> across columns <code>0..i</code>, zero after:</p>
+    <div class="ngrid-wrap">
+      <div id="trickGrid"></div>
+    </div>
+    <p class="caption">Every token gets equal weight — token 0 matters to slot 4's average exactly as much as token 3 does. That's the limitation real attention fixes: which past tokens matter shouldn't be fixed, it should depend on content.</p>
+  </section>
+
+  <section id="attention">
+    <p class="kicker">Stage 7 · the core idea of the whole architecture</p>
+    <h2>Self-attention: replacing "equal weight" with "earned weight"</h2>
+    <p>Same shape of computation — a row of weights per slot, multiplied against something, summed — but now the weights are <i>computed from the data itself</i> instead of fixed at <code>1/(i+1)</code>. Every token produces three projections of its own embedding:</p>
+    <div class="legend-row"><span class="swatch" style="background:var(--attn-accent)"></span><code>query</code> — "what am I looking for?" &nbsp;·&nbsp; <code>key</code> — "what do I contain?" &nbsp;·&nbsp; <code>value</code> — "what do I actually pass along?"</div>
+    <div class="code-block">self.key   = nn.Linear(n_embd, head_size, bias=False)
+self.query = nn.Linear(n_embd, head_size, bias=False)
+self.value = nn.Linear(n_embd, head_size, bias=False)
+
+k = self.key(x); q = self.query(x); v = self.value(x)     <span class="cm"># each (B,T,head_size)</span>
+wei = q @ k.transpose(-2,-1) * head_size**-0.5             <span class="cm"># (B,T,T) — the affinities</span>
+wei = wei.masked_fill(self.tril[:T,:T] == 0, float('-inf'))
+wei = F.softmax(wei, dim=-1)                                <span class="cm"># rows now sum to 1</span>
+out = wei @ v                                               <span class="cm"># (B,T,head_size)</span></div>
+    <figure class="diagram">
+      <div id="dg-attnhead"></div>
+      <figcaption>One attention head: <code>x</code> branches into three learned projections; <code>query</code> and <code>key</code> combine into an affinity score per pair of positions, get masked and normalized into weights, then those weights blend the <code>value</code> vectors into the output.</figcaption>
+    </figure>
+    <p>Worked through your own block — <b>"First"</b>, 5 slots, focusing on slot 4 (<code>'t'</code>), since that's whose output predicts the 6th character:</p>
+    <div class="panel">
+      <div class="row-list" id="qkvRows"></div>
+      <p class="caption">These are <code>key</code> and <code>value</code> for all 5 positions, and <code>query</code> for position 4 only — position 4's query is the one whose prediction we're tracing.</p>
+    </div>
+    <div class="ngrid-wrap" style="margin-top:1.1rem;">
+      <div>
+        <p class="caption" style="margin-top:0;"><b>Raw affinities</b> — <code>query[4] · key[j]</code>, scaled — <b>then masked</b> (positions after 4 don't exist yet, shown blank):</p>
+        <div id="affinityRow"></div>
+      </div>
+      <div>
+        <p class="caption" style="margin-top:0;"><b>After softmax</b> — a real probability distribution over the 5 positions, summing to 1:</p>
+        <div id="weightRow"></div>
+      </div>
+    </div>
+    <p class="caption">The scale factor <code>* head_size**-0.5</code> matters more than it looks: without it, as <code>head_size</code> grows, dot products grow with it, softmax saturates toward a one-hot spike, and gradients through it vanish. Dividing by <code>√head_size</code> keeps the pre-softmax variance near 1, so the distribution starts out genuinely soft.</p>
+  </section>
+
+  <section id="multihead">
+    <p class="kicker">Stage 8 · running several of these in parallel</p>
+    <h2>Multi-head attention</h2>
+    <p>One head asks one kind of question. Real transformers run several heads side by side — each with its own independent <code>key</code>/<code>query</code>/<code>value</code> weights, each free to specialize in a different kind of relationship — then glue the results back together with a concatenation and a final linear projection back to <code>n_embd</code> width.</p>
+    <div class="code-block">self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+self.proj  = nn.Linear(head_size * num_heads, n_embd)
+
+out = torch.cat([h(x) for h in self.heads], dim=-1)   <span class="cm"># (B,T, num_heads*head_size)</span>
+out = self.proj(out)                                    <span class="cm"># back to (B,T,n_embd)</span></div>
+    <figure class="diagram">
+      <div id="dg-multihead"></div>
+      <figcaption>Every head sees the same <code>x</code> and runs the exact mechanism from Stage 7 independently; their outputs are concatenated, then projected back down to <code>n_embd</code> so the shape matches what came in.</figcaption>
+    </figure>
+    <p class="caption">If <code>n_embd = 32</code> and you pick <code>n_head = 4</code>, each head gets <code>head_size = 8</code> — four 8-wide "opinions" concatenated back into one 32-wide vector.</p>
+  </section>
+
+  <section id="feedforward">
+    <p class="kicker">Stage 9 · communication vs. computation</p>
+    <h2>Feedforward: thinking alone about what was gathered</h2>
+    <p>Attention is the only place tokens exchange information with each other — Karpathy calls it <b>"communication."</b> Feedforward is the opposite: a plain per-token MLP, applied identically and independently to every slot, with no cross-token mixing at all — <b>"computation."</b> It gives each token a chance to process what attention just handed it.</p>
+    <div class="code-block">nn.Sequential(
+    nn.Linear(n_embd, 4 * n_embd),
+    nn.ReLU(),
+    nn.Linear(4 * n_embd, n_embd),
+)</div>
+    <p class="caption">The 4× expansion in the middle is a convention carried over from the original Transformer paper — more room to compute in, then compressed back to <code>n_embd</code> before leaving.</p>
+  </section>
+
+  <section id="block">
+    <p class="kicker">Stage 10 · assembling communication + computation</p>
+    <h2>Residual connections, LayerNorm, and the Block</h2>
+    <p>Two more ingredients before attention and feedforward can be safely stacked many times deep:</p>
+    <p><b>Residual (skip) connections</b> — instead of <code>x = sublayer(x)</code>, write <code>x = x + sublayer(x)</code>. The unmodified <code>x</code> always has a direct path through, so gradients have a highway back to early layers even when a deep stack would otherwise struggle to train at all.</p>
+    <p><b>LayerNorm</b> — rescales each token's own vector to stable mean/variance before it enters a sublayer. Modern practice (what this repo uses) applies it <i>before</i> attention and feedforward, not after — "pre-norm" — which trains more reliably than the original paper's "post-norm" layout.</p>
+    <div class="code-block">def forward(self, x):
+    x = x + self.sa(self.ln1(x))     <span class="cm"># attention, with a skip connection</span>
+    x = x + self.ffwd(self.ln2(x))   <span class="cm"># feedforward, with a skip connection</span>
+    return x</div>
+    <figure class="diagram">
+      <div id="dg-block"></div>
+      <figcaption>One <b>Block</b>: <code>x</code> takes two trips through a normalize → sublayer → add-back pattern — attention first, feedforward second. The two curved arrows are the residual paths: <code>x</code> itself always survives untouched alongside whatever the sublayer computed.</figcaption>
+    </figure>
+  </section>
+
+  <section id="fullmodel">
+    <p class="kicker">Stage 11 · GPTLanguageModel</p>
+    <h2>Stack N blocks, and that's a GPT</h2>
+    <p>The full model is almost entirely the pieces already built, repeated: token + position embeddings go in, <code>n_layer</code> copies of <b>Block</b> run in sequence, one final <code>LayerNorm</code> cleans things up, and <code>lm_head</code> projects to logits — exactly as it always has, just now reading a vector shaped by every earlier token instead of only its own identity and position.</p>
+    <div class="code-block">self.token_embedding_table    = nn.Embedding(vocab_size, n_embd)
+self.position_embedding_table = nn.Embedding(block_size, n_embd)
+self.blocks = nn.Sequential(*[Block(n_embd, n_head) for _ in range(n_layer)])
+self.ln_f   = nn.LayerNorm(n_embd)
+self.lm_head = nn.Linear(n_embd, vocab_size)
+
+def forward(self, idx, targets=None):
+    tok_emb = self.token_embedding_table(idx)
+    pos_emb = self.position_embedding_table(torch.arange(T))
+    x = tok_emb + pos_emb
+    x = self.blocks(x)
+    x = self.ln_f(x)
+    logits = self.lm_head(x)</div>
+    <figure class="diagram">
+      <div id="dg-fullmodel"></div>
+      <figcaption>The complete path from character ids to next-character logits. Karpathy's lecture default is <code>n_layer = 6</code>, <code>n_head = 6</code>, <code>n_embd = 384</code> — vastly larger than your current <code>idk.py</code>, same exact structure.</figcaption>
+    </figure>
+  </section>
+
+  <section id="generate">
+    <p class="kicker">Stage 12 · sampling text out</p>
+    <h2>generate(): why context gets cropped</h2>
+    <p>Same loop as your bigram model's <code>generate()</code> — predict, sample, append, repeat — with one addition that becomes necessary the moment <code>position_embedding_table</code> enters the picture: that table only has <code>block_size</code> rows. Feed it a sequence longer than <code>block_size</code> and <code>torch.arange(T)</code> asks for a position row that doesn't exist. So every step, the context gets cropped to the last <code>block_size</code> characters before the forward pass runs.</p>
+    <div class="code-block">idx_cond = idx[:, -block_size:]        <span class="cm"># keep only what position_embedding_table can index</span>
+logits, loss = self(idx_cond)
+logits = logits[:, -1, :]              <span class="cm"># only the last position's prediction matters</span>
+probs = F.softmax(logits, dim=-1)
+idx_next = torch.multinomial(probs, num_samples=1)
+idx = torch.cat((idx, idx_next), dim=1)</div>
+    <figure class="diagram">
+      <div id="dg-generate"></div>
+      <figcaption>The generation loop. Cropping to <code>block_size</code> is the direct consequence of <code>position_embedding_table</code> having exactly <code>block_size</code> rows — the same 8-row table from Stage 4.</figcaption>
+    </figure>
+  </section>
+
+  <section id="beyond">
+    <p class="kicker">Stage 13 · what changes at real scale</p>
+    <h2>From this toy GPT to ChatGPT</h2>
+    <p>Structurally, this <i>is</i> a GPT — the same embeddings, attention, feedforward, residuals, and LayerNorm scale up essentially unchanged. What's different at real scale:</p>
+    <div class="row-list" style="gap:0.9rem;">
+      <div class="row-item" style="align-items:flex-start;"><span class="row-label">tokenizer</span><span>Character-level here; real GPTs use byte-pair encoding (BPE) — subword chunks, so <code>vocab_size</code> is tens of thousands, not 65, and one "token" is often several characters.</span></div>
+      <div class="row-item" style="align-items:flex-start;"><span class="row-label">scale</span><span><code>n_embd</code>, <code>n_head</code>, <code>n_layer</code>, and <code>block_size</code> all grow by orders of magnitude — GPT-3 uses 96 layers, 12288-wide embeddings, 2048-token context.</span></div>
+      <div class="row-item" style="align-items:flex-start;"><span class="row-label">data</span><span>Not one Shakespeare file — hundreds of billions of tokens scraped from the web, books, and code.</span></div>
+      <div class="row-item" style="align-items:flex-start;"><span class="row-label">after pretraining</span><span>What you've built here <i>is</i> pretraining — next-character prediction over raw text. ChatGPT adds instruction-tuning and RLHF on top: further training specifically to follow instructions and prefer helpful responses, using human feedback rather than just "predict the next token."</span></div>
+    </div>
+    <p class="caption">Everything upstream of that last row — every mechanism on this page — is the actual foundation every one of those larger models is built from.</p>
+  </section>
+
+  <footer class="page">
+    idx → embed → attend → compute → project. Six stages, one repeated <code>Block</code>, and a crop in <code>generate()</code> — that's the entire architecture, at any scale.
+  </footer>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- shared palette / math (matches embedding-lookup.html) ---------- */
+  var PALETTE = {
+    light: { surface2: [235,237,241], ink: [27,31,39], token: [201,122,46], pos: [47,143,134], logit: [168,68,122], attn: [59,91,165], ffwd: [75,122,62] },
+    dark:  { surface2: [35,40,51],   ink: [236,238,242], token: [227,162,92], pos: [79,187,176], logit: [217,103,159], attn: [124,158,232], ffwd: [127,187,104] }
+  };
+  function isDark() {
+    var attr = document.documentElement.getAttribute("data-theme");
+    if (attr === "dark") return true;
+    if (attr === "light") return false;
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  function theme() { return isDark() ? PALETTE.dark : PALETTE.light; }
+  function rand(seed) { var x = Math.sin(seed * 12.9898) * 43758.5453; return x - Math.floor(x); }
+  function tokenVal(charId, col) { return rand(charId * 131.7 + col * 977.13) * 2 - 1; }
+  function posVal(pos, col) { return rand(5000 + pos * 257.3 + col * 631.7) * 2 - 1; }
+  function qVal(id, col) { return rand(20000 + id * 211.3 + col * 13.7) * 2 - 1; }
+  function kVal(id, col) { return rand(30000 + id * 197.1 + col * 17.9) * 2 - 1; }
+  function vVal(id, col) { return rand(40000 + id * 173.5 + col * 11.3) * 2 - 1; }
+
+  function mix(rgb, accent, t) {
+    t = Math.max(0, Math.min(1, t));
+    return "rgb(" + Math.round(rgb[0]+(accent[0]-rgb[0])*t) + "," + Math.round(rgb[1]+(accent[1]-rgb[1])*t) + "," + Math.round(rgb[2]+(accent[2]-rgb[2])*t) + ")";
+  }
+  function cellColor(value, maxAbs, accentKey, th) {
+    var t = Math.abs(value) / maxAbs;
+    var accent = accentKey === "combined" ? th.ink : th[accentKey];
+    return mix(th.surface2, accent, t);
+  }
+  function drawStrip(canvas, values, accentKey, maxAbs) {
+    maxAbs = maxAbs || 1;
+    var th = theme();
+    var cellW = 7, cellH = 22, dpr = window.devicePixelRatio || 1;
+    var n = values.length;
+    canvas.width = n * cellW * dpr; canvas.height = cellH * dpr;
+    canvas.style.width = n * cellW + "px"; canvas.style.height = cellH + "px";
+    var ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    for (var i = 0; i < n; i++) { ctx.fillStyle = cellColor(values[i], maxAbs, accentKey, th); ctx.fillRect(i*cellW, 0, cellW-1, cellH); }
+  }
+
+  var VOCAB = ["\n"," ","!","$","&","'",",","-",".","3",":",";","?","A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z","a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","x","y","z"];
+  var STOI = {}; VOCAB.forEach(function (ch, i) { STOI[ch] = i; });
+  function charLabel(ch) { return ch === " " ? "␣" : (ch === "\n" ? "\\n" : ch); }
+
+  var BLOCK8 = ["F","i","r","s","t"," ","C","i"];
+  var BLOCK5 = ["F","i","r","s","t"];
+  var IDS5 = BLOCK5.map(function (c) { return STOI[c]; });
+
+  /* ---------- position embedding rows (stage 4 recap) ---------- */
+  var posembRows = document.getElementById("posembRows");
+  for (var p = 0; p < 8; p++) {
+    (function (p) {
+      var wrap = document.createElement("div"); wrap.className = "row-item";
+      var label = document.createElement("div"); label.className = "row-label";
+      label.innerHTML = "<b>slot " + p + "</b>";
+      var canvas = document.createElement("canvas");
+      wrap.appendChild(label); wrap.appendChild(canvas); posembRows.appendChild(wrap);
+      var vals = []; for (var c = 0; c < 32; c++) vals.push(posVal(p, c));
+      drawStrip(canvas, vals, "pos");
+    })(p);
+  }
+
+  /* ---------- stage 0/1 caption fill ---------- */
+  document.getElementById("dg-stage01-caption").textContent =
+    "token_embedding_table(65,32) -> tok_emb (B,T,32) -> lm_head Linear(32,65) -> logits (B,T,65). Same output shape as pure bigram, but with a 32-wide vector in between that position embeddings, and everything after them, can add into.";
+
+  /* ---------- causal trick grid (exact math) ---------- */
+  var trickGrid = document.getElementById("trickGrid");
+  var tgrid = document.createElement("div");
+  tgrid.className = "ngrid"; tgrid.style.gridTemplateColumns = "46px repeat(5, 46px)";
+  tgrid.appendChild(document.createElement("div"));
+  BLOCK5.forEach(function (ch) { var h = document.createElement("div"); h.className = "ghead"; h.textContent = charLabel(ch); tgrid.appendChild(h); });
+  for (var i = 0; i < 5; i++) {
+    var rl = document.createElement("div"); rl.className = "rlabel"; rl.textContent = charLabel(BLOCK5[i]); tgrid.appendChild(rl);
+    for (var j = 0; j < 5; j++) {
+      var cell = document.createElement("div"); cell.className = "gcell";
+      if (j <= i) {
+        var v = 1 / (i + 1);
+        cell.textContent = v.toFixed(2);
+        cell.style.background = mix(theme().surface2, theme().attn, 0.35 + 0.5 * v);
+      } else {
+        cell.textContent = "·"; cell.classList.add("blocked");
+      }
+      tgrid.appendChild(cell);
+    }
+  }
+  trickGrid.appendChild(tgrid);
+
+  /* ---------- attention: qkv rows for the 5-token block ---------- */
+  var qkvRows = document.getElementById("qkvRows");
+  var HS = 8;
+  BLOCK5.forEach(function (ch, i) {
+    var id = STOI[ch];
+    var row = document.createElement("div"); row.className = "row-item";
+    var label = document.createElement("div"); label.className = "row-label";
+    label.innerHTML = "<b>" + i + "</b> " + charLabel(ch);
+    row.appendChild(label);
+    var kCanvas = document.createElement("canvas");
+    var kVals = []; for (var c = 0; c < HS; c++) kVals.push(kVal(id, c));
+    row.appendChild(kCanvas);
+    var vCanvas = document.createElement("canvas");
+    var vVals = []; for (var c2 = 0; c2 < HS; c2++) vVals.push(vVal(id, c2));
+    row.appendChild(vCanvas);
+    qkvRows.appendChild(row);
+    drawStrip(kCanvas, kVals, "attn");
+    drawStrip(vCanvas, vVals, "attn");
+    if (i === 4) {
+      var qWrap = document.createElement("div"); qWrap.className = "row-item"; qWrap.style.marginTop = "0.3rem";
+      var qLabel = document.createElement("div"); qLabel.className = "row-label"; qLabel.innerHTML = "<b>query[4]</b>";
+      var qCanvas = document.createElement("canvas");
+      var qVals = []; for (var c3 = 0; c3 < HS; c3++) qVals.push(qVal(id, c3));
+      qWrap.appendChild(qLabel); qWrap.appendChild(qCanvas);
+      qkvRows.appendChild(qWrap);
+      drawStrip(qCanvas, qVals, "attn");
+      window.__qVals4 = qVals;
+    }
+  });
+
+  /* ---------- affinity + softmax rows for query[4] ---------- */
+  var q4 = window.__qVals4;
+  var rawScores = [];
+  for (var jj = 0; jj < 5; jj++) {
+    var id_j = IDS5[jj];
+    var dot = 0;
+    for (var c4 = 0; c4 < HS; c4++) dot += q4[c4] * kVal(id_j, c4);
+    rawScores.push(dot / Math.sqrt(HS));
+  }
+  function renderNumRow(hostId, values, masked, isProb) {
+    var host = document.getElementById(hostId);
+    var grid = document.createElement("div"); grid.className = "ngrid";
+    grid.style.gridTemplateColumns = "46px repeat(5, 46px)";
+    grid.appendChild((function(){var d=document.createElement("div");return d;})());
+    BLOCK5.forEach(function (ch) { var h = document.createElement("div"); h.className = "ghead"; h.textContent = charLabel(ch); grid.appendChild(h); });
+    var lbl = document.createElement("div"); lbl.className = "rlabel"; lbl.textContent = "t=4";
+    grid.appendChild(lbl);
+    var maxAbs = Math.max.apply(null, values.map(Math.abs)) || 1;
+    for (var k = 0; k < 5; k++) {
+      var cell = document.createElement("div"); cell.className = "gcell";
+      if (masked[k]) { cell.textContent = "·"; cell.classList.add("blocked"); }
+      else {
+        cell.textContent = values[k].toFixed(2);
+        var t = isProb ? values[k] : Math.abs(values[k]) / maxAbs;
+        cell.style.background = mix(theme().surface2, theme().attn, 0.3 + 0.6 * t);
+      }
+      grid.appendChild(cell);
+    }
+    host.appendChild(grid);
+  }
+  var masked5 = [false, false, false, false, false]; // all visible since query is position 4 (sees everyone 0..4)
+  renderNumRow("affinityRow", rawScores, masked5, false);
+  var expd = rawScores.map(function (s) { return Math.exp(s); });
+  var sumExp = expd.reduce(function (a, b) { return a + b; }, 0);
+  var probs = expd.map(function (e) { return e / sumExp; });
+  renderNumRow("weightRow", probs, masked5, true);
+
+  /* ---------- generic svg diagram builder ---------- */
+  var SVGNS = "http://www.w3.org/2000/svg";
+  var dgCount = 0;
+  function se(tag, attrs) { var el = document.createElementNS(SVGNS, tag); for (var k in attrs) el.setAttribute(k, attrs[k]); return el; }
+  function drawDiagram(hostId, w, h, boxes, arrows, ariaLabel) {
+    dgCount++;
+    var markerId = "arrowhead-" + dgCount;
+    var host = document.getElementById(hostId);
+    var svg = se("svg", { viewBox: "0 0 " + w + " " + h, class: "diagram-svg", role: "img", "aria-label": ariaLabel || "" });
+    var defs = se("defs", {});
+    var marker = se("marker", { id: markerId, markerWidth: 8, markerHeight: 8, refX: 7, refY: 4, orient: "auto" });
+    marker.appendChild(se("path", { d: "M0,0 L8,4 L0,8 Z", fill: "currentColor" }));
+    defs.appendChild(marker); svg.appendChild(defs);
+
+    arrows.forEach(function (a) {
+      var d = a.points.map(function (pt, i) { return (i === 0 ? "M" : "L") + pt[0] + "," + pt[1]; }).join(" ");
+      var path = se("path", { d: d, fill: "none", stroke: "currentColor", "stroke-width": 1.3, "marker-end": "url(#" + markerId + ")" });
+      if (a.dashed) path.setAttribute("stroke-dasharray", "4 3");
+      if (a.accent) path.setAttribute("style", "stroke:var(--" + a.accent + "-accent)");
+      svg.appendChild(path);
+      if (a.label) {
+        var mid = a.points[Math.floor((a.points.length - 1) / 2)];
+        var mid2 = a.points[Math.ceil((a.points.length - 1) / 2)];
+        var mx = (mid[0] + mid2[0]) / 2, my = (mid[1] + mid2[1]) / 2;
+        var rect = se("rect", { x: mx - (a.label.length*3.1), y: my - 15, width: a.label.length*6.2, height: 13, fill: "var(--surface)" });
+        svg.appendChild(rect);
+        var lbl = se("text", { x: mx, y: my - 5, "text-anchor": "middle", class: "edge-label" });
+        lbl.textContent = a.label; svg.appendChild(lbl);
+      }
+    });
+
+    boxes.forEach(function (b) {
+      var rect = se("rect", { x: b.x, y: b.y, width: b.w, height: b.h, rx: 5, fill: "var(--bg)", stroke: "currentColor", "stroke-width": 1.3 });
+      if (b.accent) rect.setAttribute("style", "stroke:var(--" + b.accent + "-accent)");
+      svg.appendChild(rect);
+      var lines = b.label.split("\n");
+      var startY = b.y + b.h/2 - ((lines.length - 1) * 6.5);
+      lines.forEach(function (line, i) {
+        var text = se("text", { x: b.x + b.w/2, y: startY + i*13.5, "text-anchor": "middle", "font-size": b.fontSize || 11.5, fill: "currentColor" });
+        text.textContent = line; svg.appendChild(text);
+      });
+    });
+    host.appendChild(svg);
+  }
+
+  /* stage 0 -> stage 1 comparison */
+  drawDiagram("dg-stage01", 700, 190, [
+    { x: 20, y: 30, w: 110, h: 40, label: "idx (B,T)" },
+    { x: 220, y: 30, w: 220, h: 40, label: "Embedding(65,65)", accent: "token" },
+    { x: 530, y: 30, w: 150, h: 40, label: "logits (B,T,65)" },
+
+    { x: 20, y: 120, w: 110, h: 40, label: "idx (B,T)" },
+    { x: 200, y: 120, w: 150, h: 40, label: "token_emb\n(65,32)", accent: "token" },
+    { x: 400, y: 120, w: 130, h: 40, label: "lm_head\n(32,65)" },
+    { x: 580, y: 120, w: 100, h: 40, label: "logits" }
+  ], [
+    { points: [[130,50],[220,50]] },
+    { points: [[440,50],[530,50]] },
+    { points: [[130,140],[200,140]] },
+    { points: [[350,140],[400,140]] },
+    { points: [[530,140],[580,140]] }
+  ], "Stage 0, pure bigram, direct embedding to logits, compared with Stage 1, which inserts a 32-wide hidden vector between the embedding table and a separate linear head.");
+
+  /* attention head diagram */
+  drawDiagram("dg-attnhead", 800, 340, [
+    { x: 15, y: 150, w: 90, h: 44, label: "x\n(B,T,C)" },
+    { x: 175, y: 30,  w: 150, h: 40, label: "key = Linear", accent: "attn" },
+    { x: 175, y: 150, w: 150, h: 40, label: "query = Linear", accent: "attn" },
+    { x: 175, y: 270, w: 150, h: 40, label: "value = Linear", accent: "attn" },
+    { x: 400, y: 90,  w: 175, h: 44, label: "q·kᵀ / √hs\n(B,T,T)", accent: "attn" },
+    { x: 400, y: 170, w: 175, h: 40, label: "causal mask" },
+    { x: 400, y: 222, w: 175, h: 40, label: "softmax → weights" },
+    { x: 645, y: 150, w: 140, h: 60, label: "weights · v\n→ out (B,T,hs)", accent: "attn" }
+  ], [
+    { points: [[105,165],[175,50]] },
+    { points: [[105,172],[175,170]] },
+    { points: [[105,180],[175,290]] },
+    { points: [[325,50],[400,105]] },
+    { points: [[325,170],[400,112]] },
+    { points: [[487,134],[487,170]] },
+    { points: [[487,210],[487,222]] },
+    { points: [[575,242],[645,190]], label: "weights" },
+    { points: [[325,290],[645,190]], accent: "attn", label: "value" }
+  ], "One attention head: x is projected into key, query, and value; query and key combine into affinities, which are masked and softmaxed into weights; those weights combine with value to produce the output.");
+
+  /* multi-head diagram */
+  drawDiagram("dg-multihead", 760, 280, [
+    { x: 15, y: 120, w: 90, h: 40, label: "x" },
+    { x: 175, y: 20,  w: 150, h: 40, label: "head 1", accent: "attn" },
+    { x: 175, y: 100, w: 150, h: 40, label: "head 2", accent: "attn" },
+    { x: 175, y: 180, w: 150, h: 40, label: "⋮" },
+    { x: 175, y: 220, w: 150, h: 40, label: "head n_head", accent: "attn" },
+    { x: 420, y: 100, w: 130, h: 60, label: "concat" },
+    { x: 610, y: 100, w: 130, h: 60, label: "proj\nLinear→n_embd" }
+  ], [
+    { points: [[105,140],[175,40]] },
+    { points: [[105,138],[175,120]] },
+    { points: [[105,142],[175,240]] },
+    { points: [[325,40],[420,120]] },
+    { points: [[325,120],[420,130]] },
+    { points: [[325,240],[420,145]] },
+    { points: [[550,130],[610,130]] }
+  ], "Multiple attention heads run in parallel on the same input, each with independent weights; their outputs are concatenated and projected back to n_embd width.");
+
+  /* block diagram, built as one clean two-row flow */
+  drawDiagram("dg-block", 780, 260, [
+    { x: 20,  y: 30, w: 60,  h: 36, label: "x" },
+    { x: 130, y: 30, w: 100, h: 36, label: "LN1" },
+    { x: 280, y: 30, w: 150, h: 36, label: "self-attn", accent: "attn" },
+    { x: 480, y: 30, w: 50,  h: 36, label: "+" },
+    { x: 580, y: 30, w: 90,  h: 36, label: "x₁" },
+
+    { x: 20,  y: 160, w: 60, h: 36, label: "x₁" },
+    { x: 130, y: 160, w: 100, h: 36, label: "LN2" },
+    { x: 280, y: 160, w: 150, h: 36, label: "feedforward", accent: "ffwd" },
+    { x: 480, y: 160, w: 50, h: 36, label: "+" },
+    { x: 580, y: 160, w: 90, h: 36, label: "out" }
+  ], [
+    { points: [[80,48],[130,48]] },
+    { points: [[230,48],[280,48]] },
+    { points: [[430,48],[480,48]] },
+    { points: [[530,48],[580,48]] },
+    { points: [[50,66],[50,20],[505,20],[505,30]], label: "skip x" },
+
+    { points: [[80,178],[130,178]] },
+    { points: [[230,178],[280,178]] },
+    { points: [[430,178],[480,178]] },
+    { points: [[530,178],[580,178]] },
+    { points: [[50,196],[50,240],[505,240],[505,196]], label: "skip x₁" },
+
+    { points: [[625,66],[625,160]] }
+  ], "The transformer Block: x passes through LayerNorm and self-attention, added back to the original x via a residual skip; the result then passes through LayerNorm and feedforward, added back via a second residual skip.");
+
+  /* full model diagram (vertical stack) */
+  drawDiagram("dg-fullmodel", 480, 520, [
+    { x: 140, y: 10,  w: 200, h: 40, label: "idx (B,T)" },
+    { x: 60,  y: 90,  w: 150, h: 44, label: "token_emb\n(65,32)", accent: "token" },
+    { x: 270, y: 90,  w: 150, h: 44, label: "pos_emb\n(8,32)", accent: "pos" },
+    { x: 140, y: 174, w: 200, h: 40, label: "x = tok_emb + pos_emb" },
+    { x: 140, y: 254, w: 200, h: 56, label: "Block × n_layer\n(attn + ffwd)", accent: "attn" },
+    { x: 140, y: 350, w: 200, h: 40, label: "ln_f" },
+    { x: 140, y: 430, w: 200, h: 40, label: "lm_head Linear(32,65)" },
+    { x: 140, y: 480, w: 200, h: 32, label: "logits (B,T,65)", accent: "logit" }
+  ], [
+    { points: [[200,50],[135,90]] },
+    { points: [[280,50],[345,90]] },
+    { points: [[135,134],[220,174]] },
+    { points: [[345,134],[260,174]] },
+    { points: [[240,214],[240,254]] },
+    { points: [[240,310],[240,350]] },
+    { points: [[240,390],[240,430]] },
+    { points: [[240,470],[240,480]] }
+  ], "Full GPT model: token and position embeddings are added together, passed through n_layer stacked transformer blocks, normalized once more, then projected to logits over the vocabulary.");
+
+  /* generate loop diagram */
+  drawDiagram("dg-generate", 760, 260, [
+    { x: 20,  y: 100, w: 130, h: 44, label: "idx so far" },
+    { x: 200, y: 100, w: 150, h: 44, label: "crop to\nblock_size" },
+    { x: 400, y: 100, w: 130, h: 44, label: "forward()" },
+    { x: 580, y: 30,  w: 150, h: 44, label: "last position\nlogits" },
+    { x: 580, y: 110, w: 150, h: 44, label: "softmax → probs" },
+    { x: 580, y: 190, w: 150, h: 44, label: "sample (multinomial)" }
+  ], [
+    { points: [[150,122],[200,122]] },
+    { points: [[350,122],[400,122]] },
+    { points: [[530,122],[580,52]] },
+    { points: [[655,74],[655,110]] },
+    { points: [[655,154],[655,190]] },
+    { points: [[580,212],[85,212],[85,144]], label: "append, loop" }
+  ], "The generation loop: crop the running sequence to block_size, run the forward pass, take only the last position's logits, turn them into probabilities, sample one character, append it, and repeat.");
+
+})();
+</script>
