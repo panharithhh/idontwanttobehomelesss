@@ -15,7 +15,7 @@ Each part lives in its own folder.
 | 03 | [`03-makemore-batchnorm/`](03-makemore-batchnorm/) | Activations, gradients & BatchNorm | — | [karpathy/makemore](https://github.com/karpathy/makemore) |
 | 04 | [`04-makemore-backprop-ninja/`](04-makemore-backprop-ninja/) | Manual backprop ("backprop ninja") | — | [karpathy/makemore](https://github.com/karpathy/makemore) |
 | 05 | [`05-makemore-wavenet/`](05-makemore-wavenet/) | Deeper, WaveNet-style hierarchy | — | [karpathy/makemore](https://github.com/karpathy/makemore) |
-| 06 | [`06-gpt/`](06-gpt/) | Build GPT from scratch (a Transformer) | — | [karpathy/ng-video-lecture](https://github.com/karpathy/ng-video-lecture) |
+| 06 | [`06-gpt/`](06-gpt/) | Build GPT from scratch (a Transformer) | 2026-09-05 | [karpathy/ng-video-lecture](https://github.com/karpathy/ng-video-lecture) |
 | 07 | [`07-tokenizer/`](07-tokenizer/) | The GPT tokenizer (byte-pair encoding) | — | [karpathy/minbpe](https://github.com/karpathy/minbpe) |
 | 08 | [`08-gpt2/`](08-gpt2/) | Reproduce GPT-2 (124M) | — | [karpathy/build-nanogpt](https://github.com/karpathy/build-nanogpt) |
 

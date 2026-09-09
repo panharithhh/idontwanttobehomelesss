@@ -1,0 +1,69 @@
+ANDREJ KARPATHY'S BPE SPLIT REGEX  (from minbpe / the GPT tokenizers)
+=====================================================================
+
+These patterns are used to PRE-SPLIT raw text into chunks BEFORE byte-pair
+encoding runs. BPE then only merges bytes WITHIN a chunk, never across chunk
+boundaries -- so a letter never merges with a space, a digit, or punctuation.
+
+NOTE: they use \p{L}, \p{N}, etc. (Unicode property escapes), which the stdlib
+`re` module does NOT support. You must use the third-party `regex` module:
+    pip install regex
+    import regex as re
+
+
+--------------------------------------------------------------------
+GPT-2 split pattern
+--------------------------------------------------------------------
+GPT2_SPLIT_PATTERN = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+
+
+--------------------------------------------------------------------
+GPT-4 split pattern  (cl100k_base)
+--------------------------------------------------------------------
+GPT4_SPLIT_PATTERN = r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]++[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+"""
+
+
+--------------------------------------------------------------------
+What each piece of the GPT-2 pattern means  ( | = "OR" )
+--------------------------------------------------------------------
+'(?:[sdmt]|ll|ve|re)   contractions: 's 't 'm 'd 'll 've 're
+ ?\p{L}+               optional leading space + a run of LETTERS   -> " the", "fox"
+ ?\p{N}+               optional leading space + a run of NUMBERS   -> " 2025"
+ ?[^\s\p{L}\p{N}]+     optional space + a run of PUNCTUATION/SYMBOLS
+\s+(?!\S)              trailing whitespace at end of string
+\s+                   any other whitespace run
+
+
+--------------------------------------------------------------------
+What changed in the GPT-4 pattern
+--------------------------------------------------------------------
+(?i: ... )         contractions are now case-insensitive ('S, 'LL, ...)
+\p{N}{1,3}         number runs are capped at 3 digits (so 2025 -> "202","5")
+++  and  ?+        "possessive" quantifiers -> faster, no backtracking
+\s*[\r\n] / [\r\n]* newlines are handled more carefully
+
+
+--------------------------------------------------------------------
+How it is used in code (minbpe/regex.py)
+--------------------------------------------------------------------
+import regex as re
+
+compiled = re.compile(GPT4_SPLIT_PATTERN)
+chunks   = re.findall(compiled, text)      # split text into chunks first
+# ... then run BPE merges inside each chunk separately
+
+
+--------------------------------------------------------------------
+Quick example
+--------------------------------------------------------------------
+text   = "Hello world's 2025!!"
+chunks = ['Hello', ' world', "'s", ' 2025', '!!']    # using GPT-2 pattern
+
+
+--------------------------------------------------------------------
+Reference
+--------------------------------------------------------------------
+tiktoken source:
+https://github.com/openai/tiktoken/blob/main/tiktoken_ext/openai_public.py
+Karpathy minbpe:
+https://github.com/karpathy/minbpe

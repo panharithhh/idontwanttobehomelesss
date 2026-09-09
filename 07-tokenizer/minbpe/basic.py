@@ -1,6 +1,6 @@
 """
 Minimal (byte-level) Byte Pair Encoding tokenizer.
-
+    
 Algorithmically follows along the GPT tokenizer:
 https://github.com/openai/gpt-2/blob/master/src/encoder.py
 

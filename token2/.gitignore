@@ -1,0 +1,16 @@
+# corpora — large, regenerable, never commit
+*.txt
+!tokenizer_testset.txt
+
+# trained tokenizer artifacts
+*.model
+*.vocab
+merges.json
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+
+# notebooks
+.ipynb_checkpoints/

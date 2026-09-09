@@ -2,3 +2,20 @@
 __pycache__/
 .ipynb_checkpoints/
 *.pyc
+
+# virtualenvs - never commit these
+.venv/
+venv/
+env/
+
+# large corpora - regenerable, keep out of history
+*.txt
+!names.txt
+!input.txt
+!requirements.txt
+!tokenizer_testset.txt
+!karpathy_regex.txt
+!karpathy_train_text.txt
+
+# editor settings - machine specific
+.vscode/

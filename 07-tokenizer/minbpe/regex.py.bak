@@ -25,31 +25,15 @@ GPT2_SPLIT_PATTERN = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}
 GPT4_SPLIT_PATTERN = r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]++[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+"""
 
 # Khmer-aware split pattern: chops text into orthographic syllable clusters so
-# BPE merges never cross a syllable boundary. A cluster = base char + any mix of
-# (coeng + consonant) subscripts and vowel signs / diacritics.
-#
-# Codepoint map for the Khmer block (U+1780-U+17FF):
-#   1780-17B3  consonants and independent vowels    -> can START a cluster
-#   17B4-17D1  dependent vowel signs and diacritics -> can only FOLLOW a base
-#   17D2       COENG, the subscript joiner
-#   17D4-17DC  PUNCTUATION (khan, bariyoosan, lek too, riel) -> standalone chunks
-#   17E0-17E9  Khmer digits
-#
-# NOTE: Python's `regex` module does NOT accept \x{17B6} or [a&&[^b]] set
-# intersection - that is Java/ICU syntax. Use ា and explicit ranges.
-KHMER_BASE  = "[ក-ឳ]"
-KHMER_MARK  = "[឴-៑៓៝]"
-KHMER_COENG = "្[ក-ឳ]"
-ZWSP        = "​"
-
+# BPE merges never cross a syllable boundary. A cluster = base char + optional
+# (coeng + consonant) subscripts + trailing vowel signs / diacritics.
 KHMER_SPLIT_PATTERN = (
-    f"{KHMER_BASE}(?:{KHMER_COENG}|{KHMER_MARK})*"   # one orthographic syllable
-    "|[០-៩]+"                              # Khmer digits
-    "|[។-ៜ]"                               # Khmer punctuation, one at a time
-    f"|{ZWSP}"                                       # the word-boundary mark
-    r"|\p{N}+"                                       # ASCII digit runs
-    r"|\s+"                                          # whitespace
-    f"|[^\\p{{Khmer}}\\s{ZWSP}]+"                    # latin, punctuation, anything else
+    r"[\p{Khmer}&&[^\x{17B6}-\x{17DD}]]"  # base: a Khmer char that isn't a vowel-sign/diacritic
+    r"(?:\x{17D2}\p{Khmer})*"             #  + subscript clusters (coeng + consonant)
+    r"[\x{17B6}-\x{17DD}]*"               #  + vowel signs / diacritics
+    r"|\p{N}+"                            # digit runs
+    r"|\s+"                               # whitespace
+    r"|[^\p{Khmer}\s]+"                   # anything non-Khmer (latin, punctuation)
 )
 
 
@@ -67,6 +51,11 @@ class RegexTokenizer(Tokenizer):
         self.special_tokens = {}
         self.inverse_special_tokens = {}
     
+
+
+    def encode(self, text):
+        pass 
+
 
 
     def train(self, text, vocab_size, verbose=False):
@@ -88,14 +77,6 @@ class RegexTokenizer(Tokenizer):
             for chunk_ids in ids:
                 # passing in stats will update it in place, adding up counts
                 get_stats(chunk_ids, stats)
-            # no pairs left to merge: the split pattern has chopped the text into
-            # chunks so short that everything mergeable has already been merged.
-            # Stop early rather than crashing, and report the vocab we reached.
-            if not stats:
-                if verbose:
-                    print(f"no mergeable pairs left at merge {i}/{num_merges}; "
-                          f"stopping at vocab {256 + i}")
-                break
             # find the pair with the highest count
             pair = max(stats, key=stats.get)
             # mint a new token: assign it the next available id
@@ -131,7 +112,7 @@ class RegexTokenizer(Tokenizer):
                 raise ValueError(f"invalid token id: {idx}")
         text_bytes = b"".join(part_bytes)
         text = text_bytes.decode("utf-8", errors="replace")
-        return text
+        return  = b"".joex
 
     def _encode_chunk(self, text_bytes):
         # return the token ids

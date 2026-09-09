@@ -1,0 +1,8 @@
+[
+  { "tokenizer": "sp-bpe-32k", "fertility": 1.42, "vocabSize": 32000, "unkRate": 0.004, "roundTripPass": true },
+  { "tokenizer": "sp-unigram-32k", "fertility": 1.38, "vocabSize": 32000, "unkRate": 0.006, "roundTripPass": true },
+  { "tokenizer": "xlm-r", "fertility": 2.15, "vocabSize": 250002, "unkRate": 0.012, "roundTripPass": true },
+  { "tokenizer": "sea-lion", "fertility": 1.61, "vocabSize": 256000, "unkRate": 0.003, "roundTripPass": true },
+  { "tokenizer": "prahokbart", "fertility": 1.29, "vocabSize": 64000, "unkRate": 0.002, "roundTripPass": false },
+  { "tokenizer": "gpt-4o", "fertility": 3.87, "vocabSize": 200019, "unkRate": 0.0, "roundTripPass": true }
+]
